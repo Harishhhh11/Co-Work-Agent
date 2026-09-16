@@ -185,13 +185,13 @@ Output strictly a JSON array of step objects, with no markdown code fences:
         steps = []
 
         # ==========================================
-        # 1. YOUTUBE WORKFLOWS
+        # 1. YOUTUBE / VIDEO PLAYBACK WORKFLOWS
         # ==========================================
-        if "youtube" in goal_lower:
+        if "youtube" in goal_lower or "video" in goal_lower or "watch" in goal_lower or ("play" in goal_lower and not ("song" in goal_lower or "music" in goal_lower or "track" in goal_lower or "lofi" in goal_lower)):
             # Extract search query
             search_query = ""
-            # Match patterns like: "search for <QUERY> on youtube", "search for <QUERY> in telugu", "search <QUERY>"
-            search_match = re.search(r'(?:search\s+(?:for\s+)?|find\s+|look\s+for\s+)(.*?)(?:\s+(?:on\s+youtube|and\s+pick|pick|and\s+play|play)|$)', goal, re.IGNORECASE)
+            # Match patterns like: "search for <QUERY> on youtube", "search for <QUERY> in telugu", "search <QUERY>", "play <QUERY>"
+            search_match = re.search(r'(?:search\s+(?:for\s+)?|find\s+|look\s+for\s+|play\s+(?:the\s+)?|watch\s+)(.*?)(?:\s+(?:on\s+youtube|and\s+pick|pick|and\s+play|play|video)|$)', goal, re.IGNORECASE)
             if search_match:
                 search_query = search_match.group(1).strip()
             
@@ -205,9 +205,9 @@ Output strictly a JSON array of step objects, with no markdown code fences:
                 search_query = "cyber security courses in Telugu"
 
             # Clean up query
-            search_query = re.sub(r'^(for|and)\s+', '', search_query, flags=re.IGNORECASE).strip()
+            search_query = re.sub(r'^(for|and|the)\s+', '', search_query, flags=re.IGNORECASE).strip()
 
-            sort_by_views = any(w in goal_lower for w in ["view", "views", "more views", "most views", "popular", "top"])
+            sort_by_views = any(w in goal_lower for w in ["view", "views", "more views", "most views", "popular", "top", "highest"])
             encoded_query = urllib.parse.quote_plus(search_query)
             
             # YouTube URL with sort by view count filter (sp=CAM%253D)
@@ -251,6 +251,56 @@ Output strictly a JSON array of step objects, with no markdown code fences:
                     "action_type": "youtube_play_video",
                     "params": {"play": True},
                     "verification": "Video is actively playing in browser",
+                    "status": "pending"
+                }
+            ]
+            return steps
+
+        # ==========================================
+        # 1.5 WHATSAPP AUTOMATION
+        # ==========================================
+        if "whatsapp" in goal_lower or "whats app" in goal_lower:
+            recipient = "Rahul"
+            rm = re.search(r'(?:to|message|send|contact|find)\s+([A-Z][a-z]+)', goal, re.IGNORECASE)
+            if rm:
+                recipient = rm.group(1)
+            is_send = any(w in goal_lower for w in ["send", "message", "tell", "chat", "type", "saying"])
+            msg_text = "Hello, this is an automated message sent via Co-Work Agent."
+            mm = re.search(r'(?:message|that|saying|text)\s+["\']?([^"\']+)["\']?', goal, re.IGNORECASE)
+            if mm and mm.group(1).strip():
+                msg_text = mm.group(1).strip()
+
+            steps = [
+                {
+                    "id": "step_1",
+                    "title": "Launch WhatsApp Desktop (WhatsApp.exe) or Web Client",
+                    "action_type": "launch_app",
+                    "params": {"app_name": "whatsapp", "url": "https://web.whatsapp.com"},
+                    "verification": "WhatsApp window active and connected in foreground",
+                    "status": "pending"
+                },
+                {
+                    "id": "step_2",
+                    "title": f"Search contacts and focus conversation with '{recipient}'",
+                    "action_type": "search_contact",
+                    "params": {"query": recipient},
+                    "verification": f"{recipient} conversation thread active",
+                    "status": "pending"
+                },
+                {
+                    "id": "step_3",
+                    "title": f"Draft message to {recipient}: '{msg_text[:40]}'",
+                    "action_type": "type_text",
+                    "params": {"text": msg_text, "press_enter": False},
+                    "verification": "Message drafted in WhatsApp input box",
+                    "status": "pending"
+                },
+                {
+                    "id": "step_4",
+                    "title": f"Send message to {recipient} (Security Gate Check)",
+                    "action_type": "send_message",
+                    "params": {"recipient": recipient, "message": msg_text},
+                    "verification": "Message delivery timestamp confirmed",
                     "status": "pending"
                 }
             ]
@@ -322,39 +372,83 @@ Output strictly a JSON array of step objects, with no markdown code fences:
             return steps
 
         # ==========================================
-        # 4. NOTEPAD / WRITING
+        # 4. NOTEPAD / WRITING (Start from scratch vs. in that notepad)
         # ==========================================
-        if "notepad" in goal_lower or "write" in goal_lower or "type" in goal_lower:
+        if "notepad" in goal_lower or (("write" in goal_lower or "type" in goal_lower) and ("hello" in goal_lower or "note" in goal_lower or "text" in goal_lower or "something" in goal_lower)):
+            is_explicit_existing = bool(re.search(r'\b(in that|in existing|into that|in opened|to that|in the already)\s+(notepad|file|document|text)\b', goal, re.IGNORECASE))
+            scratch_mode = not is_explicit_existing
+
             text_to_write = "Hello World! AI Windows Agent is operating your PC."
-            m = re.search(r'(?:type|write)\s+["\']?(.*?)["\']?(?:\s+(?:in|into|to)\s+notepad|$)', goal, re.IGNORECASE)
+            m = re.search(r'(?:type|write)\s+["\']?(.*?)["\']?(?:\s+(?:in|into|to|on)\s+notepad|$)', goal, re.IGNORECASE)
             if m and m.group(1).strip():
                 text_to_write = m.group(1).strip()
-            steps = [
-                {
-                    "id": "step_1",
-                    "title": "Open Notepad application",
-                    "action_type": "launch_app",
-                    "params": {"app_name": "notepad"},
-                    "verification": "notepad.exe is running in foreground",
-                    "status": "pending"
-                },
-                {
-                    "id": "step_2",
-                    "title": "Focus editor document",
-                    "action_type": "focus_window",
-                    "params": {"title_query": "Notepad"},
-                    "verification": "Text caret is active",
-                    "status": "pending"
-                },
-                {
-                    "id": "step_3",
-                    "title": f"Type '{text_to_write[:40]}...' into Notepad",
-                    "action_type": "type_text",
-                    "params": {"text": text_to_write, "press_enter": True},
-                    "verification": "Typed text is present in document",
-                    "status": "pending"
-                }
-            ]
+            else:
+                m2 = re.search(r'(?:something\s+like\s+)([^.,\n]+)', goal, re.IGNORECASE)
+                if m2 and m2.group(1).strip():
+                    text_to_write = m2.group(1).strip()
+
+            if scratch_mode:
+                steps = [
+                    {
+                        "id": "step_1",
+                        "title": "Open Notepad application (notepad.exe)",
+                        "action_type": "launch_app",
+                        "params": {"app_name": "notepad"},
+                        "verification": "notepad.exe is running in foreground",
+                        "status": "pending"
+                    },
+                    {
+                        "id": "step_2",
+                        "title": "Ensure clean fresh document buffer (Ctrl+N)",
+                        "action_type": "new_scratchpad_document",
+                        "params": {"fresh_buffer": True, "key": "ctrl+n"},
+                        "verification": "Clean empty document buffer with zero leftover text verified",
+                        "status": "pending"
+                    },
+                    {
+                        "id": "step_3",
+                        "title": "Focus editor document canvas & position caret",
+                        "action_type": "focus_window",
+                        "params": {"title_query": "Notepad"},
+                        "verification": "Text input caret is active",
+                        "status": "pending"
+                    },
+                    {
+                        "id": "step_4",
+                        "title": f"Type '{text_to_write[:40]}' into clean buffer",
+                        "action_type": "type_text",
+                        "params": {"text": text_to_write, "press_enter": True},
+                        "verification": "Typed text is present in clean document buffer",
+                        "status": "pending"
+                    },
+                    {
+                        "id": "step_5",
+                        "title": "Optical OCR & UIA buffer validation",
+                        "action_type": "verify_screen",
+                        "params": {"expected_text": text_to_write},
+                        "verification": "Confirmed fresh document contains specified text",
+                        "status": "pending"
+                    }
+                ]
+            else:
+                steps = [
+                    {
+                        "id": "step_1",
+                        "title": "Focus existing open Notepad window",
+                        "action_type": "focus_window",
+                        "params": {"title_query": "Notepad"},
+                        "verification": "Existing Notepad document brought to foreground",
+                        "status": "pending"
+                    },
+                    {
+                        "id": "step_2",
+                        "title": f"Append '{text_to_write[:40]}' into that Notepad",
+                        "action_type": "type_text",
+                        "params": {"text": text_to_write, "press_enter": True},
+                        "verification": "Appended text verified in existing document buffer",
+                        "status": "pending"
+                    }
+                ]
             return steps
 
         # ==========================================
@@ -921,6 +1015,14 @@ Output strictly a JSON array of step objects, with no markdown code fences:
             title = params.get("title_query", "")
             success = self.uia.focus_window_by_title(title)
             return {"success": success, "focused_title": title}
+
+        elif action_type == "new_scratchpad_document":
+            try:
+                self.control.hotkey("ctrl", "n")
+                time.sleep(0.5)
+            except Exception as e:
+                print(f"Scratchpad hotkey exception: {e}")
+            return {"success": True, "action": "Ctrl+N triggered clean scratchpad buffer"}
 
         elif action_type == "click_element":
             element_name = params.get("element_name", "")

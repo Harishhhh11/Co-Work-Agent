@@ -40,11 +40,20 @@ interface AgentStep {
   confidence?: number;
 }
 
+export interface AgentReasoning {
+  intent: string;
+  scratch_mode: boolean;
+  apps_targeted: string[];
+  safety_level: 'safe' | 'sensitive' | 'elevated';
+  thought_process: string[];
+}
+
 interface AgentState {
   status: 'idle' | 'planning' | 'running' | 'paused' | 'waiting_confirmation' | 'stopped' | 'completed';
   goal: string;
   current_step: number;
   steps: AgentStep[];
+  reasoning?: AgentReasoning;
   pending_confirmation: {
     id: string;
     action_type: string;
@@ -55,12 +64,14 @@ interface AgentState {
     title: string;
     process: string;
     rect: { x: number; y: number; width: number; height: number };
+    buffer_text?: string;
+    scratch_mode?: boolean;
   };
   screen_resolution: [number, number];
   cursor_pos: [number, number];
   is_input_frozen?: boolean;
   freeze_enabled?: boolean;
-  speed?: '1x' | '2x' | '5x';
+  speed?: 'observable' | 'normal' | 'fast' | '1x' | '2x' | '5x';
   ocr_confidence?: number;
   logs: Array<{ time: string; message: string; type: 'info' | 'action' | 'verify' | 'alert' }>;
 }
@@ -75,12 +86,14 @@ const runtimeState: AgentState = {
     title: 'Windows Desktop - Explorer',
     process: 'explorer.exe',
     rect: { x: 0, y: 0, width: 1920, height: 1080 },
+    buffer_text: '',
+    scratch_mode: true,
   },
   screen_resolution: [1920, 1080],
   cursor_pos: [960, 540],
   is_input_frozen: false,
   freeze_enabled: true,
-  speed: '1x',
+  speed: 'observable',
   ocr_confidence: 99.4,
   logs: [
     { time: new Date().toLocaleTimeString(), message: 'Windows Computer-Use Engine initialized.', type: 'info' },
@@ -196,12 +209,13 @@ app.post('/api/agent/confirm', (req, res) => {
 // Set Execution Speed
 app.post('/api/agent/speed', (req, res) => {
   const speed = req.body?.speed;
-  if (speed === '1x' || speed === '2x' || speed === '5x') {
+  const validSpeeds = ['observable', 'normal', 'fast', '1x', '2x', '5x'];
+  if (validSpeeds.includes(speed)) {
     runtimeState.speed = speed;
-    logAgentEvent(`Execution speed set to ${speed}`, 'info');
+    logAgentEvent(`Execution pacing set to ${speed}`, 'info');
     res.json({ success: true, speed: runtimeState.speed });
   } else {
-    res.status(400).json({ error: 'Invalid speed. Use 1x, 2x, or 5x' });
+    res.status(400).json({ error: 'Invalid speed. Use observable, normal, or fast' });
   }
 });
 
@@ -245,21 +259,50 @@ app.post('/api/agent/plan', async (req, res) => {
   logAgentEvent(`Goal received: "${goal}"`, 'info');
 
   let generatedSteps: AgentStep[] = [];
+  let reasoning: AgentReasoning = {
+    intent: `Execute Windows desktop task: "${goal}"`,
+    scratch_mode: true,
+    apps_targeted: ['explorer.exe'],
+    safety_level: 'safe',
+    thought_process: [
+      `Analyzing incoming goal: "${goal}"`,
+      `Context check: Standard scratch-mode policy enforced. Clean application environments initialized.`,
+      `Synthesizing deterministic verification steps for optical validation.`,
+    ],
+  };
+
+  const isExplicitExistingNotepad = /\b(in that|in existing|into that|in opened|to that|in the already)\s+(notepad|file|document|text)\b/i.test(goal);
+  const isScratchNotepad = !isExplicitExistingNotepad;
 
   // Try Gemini 3.8 Flash for intelligent computer-use decomposition if key exists
   if (process.env.GEMINI_API_KEY) {
     try {
       const ai = getGemini();
-      const prompt = `You are an expert autonomous Windows Computer-Use AI agent planner.
+      const prompt = `You are an expert autonomous Windows Computer-Use AI agent planner with deep perception and reasoning.
 Decompose the following user request into precise, verifiable Windows desktop steps:
 USER GOAL: "${goal}"
 
+CRITICAL POLICY:
+- "START FROM SCRATCH" DIRECTIVE: Always start from a clean state unless the user explicitly asks to work inside an already open file (e.g. "in that notepad", "in that file").
+- For Notepad tasks from scratch:
+  1. launch_app { app_name: "notepad" }
+  2. new_scratchpad_document { fresh_buffer: true, key: "ctrl+n" } -> guarantees empty pristine document buffer
+  3. focus_window { title_query: "Notepad" }
+  4. type_text { text: "...", press_enter: true }
+  5. verify_screen { expected_text: "..." }
+- If user explicitly said "in that notepad", do NOT create a new document; focus the existing window and type text directly.
+- For YouTube: search -> filter/pick top video -> play video.
+
 Available atomic action types:
 - launch_app: { app_name: string, url?: string }
+- new_scratchpad_document: { fresh_buffer: boolean, key?: string }
 - focus_window: { title_query: string }
 - click_element: { element_name: string, fallback_coords?: [number, number] }
 - mouse_click: { x: number, y: number, button?: "left" | "right", clicks?: number }
 - type_text: { text: string, press_enter?: boolean }
+- youtube_search: { query: string, sort_by_views: boolean }
+- youtube_select_video: { query: string, selection: string }
+- youtube_play_video: { play: boolean }
 - copy_meet_link: {}
 - search_contact: { query: string }
 - send_message: { recipient: string, message: string } (SENSITIVE)
@@ -267,16 +310,25 @@ Available atomic action types:
 - fs_organize: { source: string, extension: string, destination: string }
 - fs_write: { path: string, content: string }
 
-Return a JSON array of step objects adhering strictly to this schema:
-[
-  {
-    "id": "step_1",
-    "title": "Clear description of action",
-    "action_type": "one of the above types",
-    "params": { ... },
-    "verification": "How to visually/programmatically verify success"
-  }
-]`;
+Return a JSON object adhering to this schema:
+{
+  "reasoning": {
+    "intent": "Concise summary of intent",
+    "scratch_mode": boolean,
+    "apps_targeted": ["list of apps"],
+    "safety_level": "safe" | "sensitive" | "elevated",
+    "thought_process": ["step-by-step thinking strings"]
+  },
+  "steps": [
+    {
+      "id": "step_1",
+      "title": "Clear description of action",
+      "action_type": "one of the above types",
+      "params": { ... },
+      "verification": "Visual/Programmatic verification"
+    }
+  ]
+}`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
@@ -284,25 +336,45 @@ Return a JSON array of step objects adhering strictly to this schema:
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                title: { type: Type.STRING },
-                action_type: { type: Type.STRING },
-                params: { type: Type.OBJECT },
-                verification: { type: Type.STRING },
+            type: Type.OBJECT,
+            properties: {
+              reasoning: {
+                type: Type.OBJECT,
+                properties: {
+                  intent: { type: Type.STRING },
+                  scratch_mode: { type: Type.BOOLEAN },
+                  apps_targeted: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  safety_level: { type: Type.STRING },
+                  thought_process: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+                required: ['intent', 'scratch_mode', 'apps_targeted', 'safety_level', 'thought_process'],
               },
-              required: ['id', 'title', 'action_type', 'params', 'verification'],
+              steps: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    title: { type: Type.STRING },
+                    action_type: { type: Type.STRING },
+                    params: { type: Type.OBJECT },
+                    verification: { type: Type.STRING },
+                  },
+                  required: ['id', 'title', 'action_type', 'params', 'verification'],
+                },
+              },
             },
+            required: ['reasoning', 'steps'],
           },
         },
       });
 
-      const parsed = JSON.parse(response.text?.trim() || '[]');
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        generatedSteps = parsed.map((s: any, idx: number) => ({
+      const parsed = JSON.parse(response.text?.trim() || '{}');
+      if (parsed.reasoning) {
+        reasoning = parsed.reasoning;
+      }
+      if (Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+        generatedSteps = parsed.steps.map((s: any, idx: number) => ({
           ...s,
           id: s.id || `step_${idx + 1}`,
           status: 'pending',
@@ -317,8 +389,134 @@ Return a JSON array of step objects adhering strictly to this schema:
   if (generatedSteps.length === 0) {
     const gl = goal.toLowerCase();
 
+    // 0. Notepad & Text Documents (Start from scratch vs. In that notepad)
+    if (gl.includes('notepad') || (gl.includes('write') && (gl.includes('hello') || gl.includes('note') || gl.includes('text'))) || (gl.includes('type') && (gl.includes('hello') || gl.includes('something')))) {
+      let textToWrite = 'Hello World!';
+      const m1 = goal.match(/(?:type|write)\s+["']?([^"']+)["']?(?:\s+(?:in|into|to|on)\s+notepad|\s*$)/i);
+      if (m1 && m1[1]?.trim()) {
+        textToWrite = m1[1].trim().replace(/^(something\s+like\s+)/i, '');
+      } else {
+        const m2 = goal.match(/(?:something\s+like\s+)([^.,\n]+)/i);
+        if (m2 && m2[1]?.trim()) {
+          textToWrite = m2[1].trim();
+        }
+      }
+
+      if (isScratchNotepad) {
+        reasoning = {
+          intent: `Open fresh Notepad instance from scratch and type "${textToWrite}".`,
+          scratch_mode: true,
+          apps_targeted: ['notepad.exe'],
+          safety_level: 'safe',
+          thought_process: [
+            `Goal received: "${goal}"`,
+            `Policy: No directive to append to an existing document. Initializing in START FROM SCRATCH mode.`,
+            `Window lifecycle: Launch Notepad application (notepad.exe).`,
+            `Buffer isolation: Injected Win32 Ctrl+N (new_scratchpad_document) to allocate a pristine blank document buffer, preventing collision with open files.`,
+            `Focus: Foreground text input canvas and position insertion caret.`,
+            `Keystroke dispatch: Type requested text "${textToWrite}" via native SendInput.`,
+            `Verification: Optical OCR and accessibility tree check to confirm blank buffer now holds exactly the target text.`,
+          ],
+        };
+        generatedSteps = [
+          {
+            id: 'step_1',
+            title: 'Launch Notepad application (notepad.exe)',
+            action_type: 'launch_app',
+            params: { app_name: 'notepad' },
+            verification: 'notepad.exe process confirmed in foreground',
+            status: 'pending',
+          },
+          {
+            id: 'step_2',
+            title: 'Ensure clean fresh document buffer (SendKey: Ctrl+N)',
+            action_type: 'new_scratchpad_document',
+            params: { fresh_buffer: true, key: 'ctrl+n' },
+            verification: 'Verified clean empty document buffer with zero leftover text',
+            status: 'pending',
+          },
+          {
+            id: 'step_3',
+            title: 'Focus editor canvas & position text caret',
+            action_type: 'focus_window',
+            params: { title_query: 'Notepad' },
+            verification: 'Text input caret flashing and active',
+            status: 'pending',
+          },
+          {
+            id: 'step_4',
+            title: `Type "${textToWrite}" into clean document`,
+            action_type: 'type_text',
+            params: { text: textToWrite, press_enter: true },
+            verification: `Text "${textToWrite}" rendered in clean document buffer`,
+            status: 'pending',
+          },
+          {
+            id: 'step_5',
+            title: 'Optical OCR & UIA buffer validation',
+            action_type: 'verify_screen',
+            params: { expected_text: textToWrite },
+            verification: 'Confirmed fresh document contains specified text',
+            status: 'pending',
+          },
+        ];
+      } else {
+        reasoning = {
+          intent: `Locate active Notepad document and append text "${textToWrite}".`,
+          scratch_mode: false,
+          apps_targeted: ['notepad.exe'],
+          safety_level: 'safe',
+          thought_process: [
+            `Goal received: "${goal}"`,
+            `Explicit Target Detected: User specified to write "in that notepad". Retaining existing file buffer.`,
+            `Window management: Bring currently open Notepad window to foreground.`,
+            `Input dispatch: Append text payload directly into that document.`,
+            `Verification: Confirm appended text present alongside existing content.`,
+          ],
+        };
+        generatedSteps = [
+          {
+            id: 'step_1',
+            title: 'Focus existing open Notepad window',
+            action_type: 'focus_window',
+            params: { title_query: 'Notepad' },
+            verification: 'Existing Notepad document brought to foreground',
+            status: 'pending',
+          },
+          {
+            id: 'step_2',
+            title: `Append "${textToWrite}" into that Notepad`,
+            action_type: 'type_text',
+            params: { text: textToWrite, press_enter: true },
+            verification: `Appended text into existing document buffer`,
+            status: 'pending',
+          },
+          {
+            id: 'step_3',
+            title: 'Optical OCR verification of appended content',
+            action_type: 'verify_screen',
+            params: { expected_text: textToWrite },
+            verification: 'Verified updated text in existing document',
+            status: 'pending',
+          },
+        ];
+      }
+    }
     // 1. Chrome Meet + WhatsApp
-    if (gl.includes('chrome') && (gl.includes('meet') || gl.includes('meeting')) && gl.includes('whatsapp')) {
+    else if (gl.includes('chrome') && (gl.includes('meet') || gl.includes('meeting')) && gl.includes('whatsapp')) {
+      reasoning = {
+        intent: 'Schedule Google Meet link in Chrome and dispatch via WhatsApp to Rahul.',
+        scratch_mode: true,
+        apps_targeted: ['chrome.exe', 'whatsapp.exe'],
+        safety_level: 'sensitive',
+        thought_process: [
+          'Detected multi-application collaboration workflow (Google Meet + WhatsApp).',
+          'Launch clean Chrome browser session to generate instant video room.',
+          'Extract unique Meet URL and store safely in Windows clipboard buffer.',
+          'Launch WhatsApp, query conversation directory for "Rahul".',
+          'Sensitive Security Gate: Require human confirmation before dispatching outgoing chat.',
+        ],
+      };
       generatedSteps = [
         {
           id: 'step_1',
@@ -373,14 +571,32 @@ Return a JSON array of step objects adhering strictly to this schema:
         },
       ];
     }
-    // 2. YouTube Search & Playback
-    else if (gl.includes('youtube')) {
-      const isViews = gl.includes('view') || gl.includes('views') || gl.includes('popular');
+    // 2. YouTube Search & Playback (Supports YouTube, Video Playing, Courses, Tutorials)
+    else if (gl.includes('youtube') || gl.includes('video') || gl.includes('watch') || (gl.includes('play') && !gl.includes('spotify') && !gl.includes('music') && !gl.includes('song') && !gl.includes('track') && !gl.includes('lofi'))) {
+      const isViews = gl.includes('view') || gl.includes('views') || gl.includes('popular') || gl.includes('highest') || gl.includes('more view') || gl.includes('most view');
       let query = 'cyber security courses in Telugu';
-      const m = goal.match(/(?:search\s+(?:for\s+)?|find\s+|look\s+for\s+)(.*?)(?:\s+(?:on\s+youtube|and\s+pick|pick|and\s+play|play)|$)/i);
+      const m = goal.match(/(?:search\s+(?:for\s+)?|find\s+|look\s+for\s+|play\s+(?:the\s+)?|watch\s+)(.*?)(?:\s+(?:on\s+youtube|and\s+pick|pick|and\s+play|play|video)|$)/i);
       if (m && m[1]?.trim()) {
-        query = m[1].trim().replace(/^(for|and)\s+/i, '');
+        const candidate = m[1].trim().replace(/^(for|and|the)\s+/i, '');
+        if (candidate.length > 2) {
+          query = candidate;
+        }
       }
+
+      reasoning = {
+        intent: `Open YouTube in Chrome, find top video for "${query}", and initiate playback.`,
+        scratch_mode: true,
+        apps_targeted: ['chrome.exe'],
+        safety_level: 'safe',
+        thought_process: [
+          `Goal received: "${goal}"`,
+          `Media task: Initializing clean YouTube environment in Google Chrome.`,
+          `Target video search query: "${query}".`,
+          `Ranking: Filter search results by View Count (Highest Views) for quality assurance.`,
+          `Playback trigger: Select top video result and stream audio/video at 1080p 60fps.`,
+        ],
+      };
+
       generatedSteps = [
         {
           id: 'step_1',
@@ -414,6 +630,77 @@ Return a JSON array of step objects adhering strictly to this schema:
           verification: 'Video is actively playing in 1080p',
           status: 'pending',
         },
+      ];
+    }
+    // 2.5 Standalone WhatsApp Messaging & Chat
+    else if (gl.includes('whatsapp') || gl.includes('whats app')) {
+      const recipientMatch = goal.match(/(?:to|message|send|contact|find)\s+([A-Z][a-z]+)/i);
+      const recipient = recipientMatch ? recipientMatch[1] : 'Rahul';
+      const isMessage = gl.includes('send') || gl.includes('message') || gl.includes('tell') || gl.includes('saying') || gl.includes('chat');
+      let msgText = 'Hello, this is an automated message sent via Co-Work Agent.';
+      const msgMatch = goal.match(/(?:message|that|saying|text)\s+["']?([^"']+)["']?/i);
+      if (msgMatch && msgMatch[1]?.trim()) {
+        msgText = msgMatch[1].trim();
+      }
+
+      reasoning = {
+        intent: `Open WhatsApp Desktop and ${isMessage ? `message ${recipient}` : `open conversation with ${recipient}`}.`,
+        scratch_mode: true,
+        apps_targeted: ['whatsapp.exe'],
+        safety_level: isMessage ? 'sensitive' : 'safe',
+        thought_process: [
+          `Goal received: "${goal}"`,
+          `Application Target: WhatsApp Desktop (WhatsApp.exe) or Web Client.`,
+          `Clean startup: Initialize WhatsApp environment.`,
+          `Contact lookup: Locate "${recipient}" in conversation directory.`,
+          ...(isMessage ? ['Security gate: Pause for human approval before sending outgoing message.'] : ['Focus chat conversation thread.']),
+        ],
+      };
+
+      generatedSteps = [
+        {
+          id: 'step_1',
+          title: 'Launch WhatsApp Desktop application (WhatsApp.exe)',
+          action_type: 'launch_app',
+          params: { app_name: 'whatsapp', url: 'https://web.whatsapp.com' },
+          verification: 'WhatsApp window active in foreground',
+          status: 'pending',
+        },
+        {
+          id: 'step_2',
+          title: `Search contacts and open conversation with "${recipient}"`,
+          action_type: 'search_contact',
+          params: { query: recipient },
+          verification: `${recipient} conversation thread active`,
+          status: 'pending',
+        },
+        ...(isMessage ? [
+          {
+            id: 'step_3',
+            title: `Draft message to ${recipient}: "${msgText}"`,
+            action_type: 'type_text',
+            params: { text: msgText, press_enter: false },
+            verification: 'Message drafted into WhatsApp input box',
+            status: 'pending',
+          },
+          {
+            id: 'step_4',
+            title: `Send message to ${recipient} (Requires User Approval)`,
+            action_type: 'send_message',
+            params: { recipient, message: msgText },
+            verification: 'Message sent timestamp confirmed',
+            status: 'pending',
+          }
+        ] : [
+          {
+            id: 'step_3',
+            title: `Focus chat with ${recipient} & ready text input`,
+            action_type: 'focus_window',
+            params: { title_query: 'WhatsApp' },
+            verification: 'Conversation ready for communication',
+            status: 'pending',
+          }
+        ]),
       ];
     }
     // 3. VS Code & Coding Tasks
@@ -844,10 +1131,11 @@ Return a JSON array of step objects adhering strictly to this schema:
   }
 
   runtimeState.steps = generatedSteps;
+  runtimeState.reasoning = reasoning;
   runtimeState.status = 'running';
-  logAgentEvent(`Plan generated with ${generatedSteps.length} discrete steps.`, 'info');
+  logAgentEvent(`Plan generated with ${generatedSteps.length} discrete steps. [Scratch Mode: ${reasoning.scratch_mode ? 'YES (Pristine Buffer)' : 'NO (Existing File)'}]`, 'info');
 
-  res.json({ success: true, steps: generatedSteps });
+  res.json({ success: true, steps: generatedSteps, reasoning: runtimeState.reasoning });
 });
 
 // Step Execution Loop
@@ -895,7 +1183,45 @@ app.post('/api/agent/step', async (req, res) => {
   }
 
   // Simulate or execute native Windows actions with realistic UI updates
-  if (step.action_type === 'youtube_search') {
+  if (step.action_type === 'new_scratchpad_document') {
+    runtimeState.active_window = {
+      title: '*Untitled - Notepad',
+      process: 'notepad.exe',
+      rect: { x: 300, y: 180, width: 850, height: 620 },
+      buffer_text: '',
+      scratch_mode: true,
+    };
+    runtimeState.cursor_pos = [420, 240];
+    logAgentEvent('Dispatched Win32 Ctrl+N: Initialized fresh clean document buffer. Zero leftover text.', 'action');
+  } else if (step.action_type === 'focus_window') {
+    const titleQuery = (step.params?.title_query || '').toLowerCase();
+    if (titleQuery.includes('notepad')) {
+      if (!runtimeState.active_window.process.includes('notepad')) {
+        runtimeState.active_window = {
+          title: 'Untitled - Notepad',
+          process: 'notepad.exe',
+          rect: { x: 300, y: 180, width: 850, height: 620 },
+          buffer_text: runtimeState.active_window.buffer_text || '',
+          scratch_mode: false,
+        };
+      }
+      runtimeState.cursor_pos = [450, 260];
+    } else if (titleQuery.includes('chrome') || titleQuery.includes('youtube')) {
+      runtimeState.cursor_pos = [480, 52];
+    }
+  } else if (step.action_type === 'type_text') {
+    const text = step.params?.text || '';
+    if (runtimeState.active_window.process.includes('notepad')) {
+      if (runtimeState.active_window.scratch_mode) {
+        runtimeState.active_window.buffer_text = text;
+      } else {
+        runtimeState.active_window.buffer_text = (runtimeState.active_window.buffer_text ? runtimeState.active_window.buffer_text + '\n' : '') + text;
+      }
+      runtimeState.active_window.title = '*Untitled - Notepad';
+    }
+    runtimeState.cursor_pos = [520, 360];
+    logAgentEvent(`Typed text into active buffer: "${text.slice(0, 50)}"`, 'action');
+  } else if (step.action_type === 'youtube_search') {
     runtimeState.active_window = {
       title: `${step.params?.query || 'cyber security'} - YouTube - Google Chrome`,
       process: 'chrome.exe',
@@ -916,9 +1242,34 @@ app.post('/api/agent/step', async (req, res) => {
       rect: { x: 80, y: 40, width: 1500, height: 950 },
     };
     runtimeState.cursor_pos = [600, 420];
+  } else if (step.action_type === 'search_contact') {
+    runtimeState.active_window = {
+      title: `WhatsApp Desktop - ${step.params?.query || 'Rahul'}`,
+      process: 'whatsapp.exe',
+      rect: { x: 200, y: 100, width: 1100, height: 800 },
+    };
+    runtimeState.cursor_pos = [320, 240];
+    logAgentEvent(`Found contact "${step.params?.query || 'Rahul'}" in WhatsApp directory. Thread active.`, 'action');
+  } else if (step.action_type === 'send_message') {
+    runtimeState.active_window = {
+      title: `WhatsApp Desktop - ${step.params?.recipient || 'Rahul'}`,
+      process: 'whatsapp.exe',
+      rect: { x: 200, y: 100, width: 1100, height: 800 },
+    };
+    runtimeState.cursor_pos = [720, 750];
+    logAgentEvent(`Message delivered to ${step.params?.recipient || 'Rahul'}: "${step.params?.message || ''}"`, 'action');
   } else if (step.action_type === 'launch_app') {
     const appName = (step.params.app_name || 'app').toLowerCase();
-    if (appName.includes('excel')) {
+    if (appName.includes('notepad')) {
+      runtimeState.active_window = {
+        title: 'Untitled - Notepad',
+        process: 'notepad.exe',
+        rect: { x: 300, y: 180, width: 850, height: 620 },
+        buffer_text: '',
+        scratch_mode: true,
+      };
+      runtimeState.cursor_pos = [450, 240];
+    } else if (appName.includes('excel')) {
       runtimeState.active_window = {
         title: 'Monthly Budget.xlsx - Microsoft Excel',
         process: 'excel.exe',
@@ -995,13 +1346,6 @@ app.post('/api/agent/step', async (req, res) => {
         rect: { x: 160, y: 100, width: 1100, height: 750 },
       };
       runtimeState.cursor_pos = [300, 200];
-    } else if (appName.includes('notepad')) {
-      runtimeState.active_window = {
-        title: 'Untitled - Notepad',
-        process: 'notepad.exe',
-        rect: { x: 300, y: 200, width: 800, height: 600 },
-      };
-      runtimeState.cursor_pos = [500, 350];
     } else if (appName.includes('whatsapp')) {
       runtimeState.active_window = {
         title: 'WhatsApp Desktop',
@@ -1009,6 +1353,13 @@ app.post('/api/agent/step', async (req, res) => {
         rect: { x: 200, y: 100, width: 1100, height: 800 },
       };
       runtimeState.cursor_pos = [320, 160];
+    } else if (appName.includes('youtube')) {
+      runtimeState.active_window = {
+        title: 'YouTube - Google Chrome',
+        process: 'chrome.exe',
+        rect: { x: 80, y: 40, width: 1500, height: 950 },
+      };
+      runtimeState.cursor_pos = [480, 52];
     } else {
       runtimeState.active_window = {
         title: `${step.params.goal || 'Google Chrome'} - Web Portal`,

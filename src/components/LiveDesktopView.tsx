@@ -151,8 +151,13 @@ export function LiveDesktopView({
       );
     }
 
-    if (title.includes('youtube')) {
-      const isPlaying = title.includes('playing') || title.includes('▶');
+    if (title.includes('youtube') || title.includes('video') || title.includes('playing:')) {
+      const isPlaying = title.includes('playing') || title.includes('▶') || title.includes('cyber security full course');
+      const queryMatch = activeWindow.title.match(/(?:Playing:\s*)?(.*?)(?:\s*-\s*YouTube|\s*-\s*Google Chrome|$)/i);
+      const displayQuery = (queryMatch && queryMatch[1]?.trim() && !queryMatch[1].toLowerCase().includes('google chrome') && !queryMatch[1].toLowerCase().includes('youtube'))
+        ? queryMatch[1].trim()
+        : 'cyber security courses in Telugu';
+
       return (
         <div className="w-full h-full bg-[#0f0f0f] text-white flex flex-col font-sans select-none relative overflow-hidden">
           {/* Chrome Tab & Window Bar */}
@@ -176,7 +181,7 @@ export function LiveDesktopView({
             <div className="flex-1 max-w-xl flex items-center">
               <div className="flex-1 bg-[#121212] border border-[#303030] rounded-l-full px-4 py-1.5 text-xs text-zinc-100 flex items-center gap-2 focus-within:border-blue-500">
                 <span>🔍</span>
-                <span className="font-medium text-zinc-200">cyber security courses in Telugu</span>
+                <span className="font-medium text-zinc-200">{displayQuery}</span>
               </div>
               <button className="bg-[#222] border border-l-0 border-[#303030] rounded-r-full px-5 py-1.5 text-xs hover:bg-[#272727] text-zinc-300">
                 Search
@@ -729,20 +734,71 @@ export function LiveDesktopView({
     }
 
     if (title.includes('notepad')) {
+      const isScratch = activeWindow.scratch_mode !== false;
+      const bufferText = activeWindow.buffer_text !== undefined ? activeWindow.buffer_text : 'Hello World!\nAI Windows Agent is operating your PC.';
+      const lines = bufferText.split('\n');
+
       return (
         <div className="w-full h-full bg-slate-950 text-slate-100 flex flex-col font-mono select-none relative">
+          {/* Notepad Windows 11 Tab Bar */}
+          <div className="h-9 bg-slate-900/90 border-b border-slate-800 px-3 flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-1 bg-slate-800 text-slate-200 rounded-t border-t-2 border-blue-500 text-xs font-sans">
+                <FileText className="w-3.5 h-3.5 text-blue-400" />
+                <span>{activeWindow.title || '*Untitled - Notepad'}</span>
+              </div>
+              <span className="text-slate-500 text-xs px-2 hover:text-white cursor-pointer">+</span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] font-sans">
+              {isScratch ? (
+                <span className="px-2 py-0.5 rounded bg-emerald-950/70 border border-emerald-600/40 text-emerald-400 flex items-center gap-1 font-mono">
+                  ✨ Scratch Mode (Pristine Buffer)
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded bg-amber-950/70 border border-amber-600/40 text-amber-300 flex items-center gap-1 font-mono">
+                  📌 Existing Document Buffer
+                </span>
+              )}
+            </div>
+          </div>
+
           {/* Notepad Menu Bar */}
-          <div className="h-7 bg-slate-900 border-b border-slate-800 px-3 flex items-center gap-4 text-xs text-slate-400">
-            <span>File</span>
-            <span>Edit</span>
-            <span>View</span>
+          <div className="h-7 bg-slate-900/60 border-b border-slate-800/80 px-4 flex items-center gap-5 text-xs text-slate-400 font-sans">
+            <span className="hover:text-white cursor-pointer">File</span>
+            <span className="hover:text-white cursor-pointer">Edit</span>
+            <span className="hover:text-white cursor-pointer">View</span>
           </div>
 
           {/* Notepad Canvas */}
-          <div className="flex-1 p-6 text-sm text-slate-200 leading-relaxed font-mono">
-            <p className="text-emerald-400">Hello World!</p>
-            <p className="text-slate-400 mt-2 text-xs">AI Windows Agent is actively controlling your Windows desktop.</p>
-            <div className="w-2 h-4 bg-blue-500 inline-block animate-pulse mt-2" />
+          <div className="flex-1 p-6 text-sm text-slate-200 leading-relaxed font-mono overflow-y-auto whitespace-pre-wrap">
+            {bufferText.trim() ? (
+              lines.map((ln, i) => (
+                <div key={i} className="min-h-[1.5rem] flex items-center">
+                  <span>{ln}</span>
+                  {i === lines.length - 1 && (
+                    <span className="w-2 h-4 bg-blue-500 inline-block animate-pulse ml-0.5" />
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="text-slate-500 italic flex items-center gap-2">
+                <span>[Empty clean document buffer — ready for autonomous input]</span>
+                <span className="w-2 h-4 bg-blue-500 inline-block animate-pulse" />
+              </div>
+            )}
+          </div>
+
+          {/* Notepad Status Bar */}
+          <div className="h-6 bg-slate-900 border-t border-slate-800 px-4 flex items-center justify-between text-[11px] text-slate-400 font-sans">
+            <div className="flex items-center gap-4">
+              <span>Ln {Math.max(1, lines.length)}, Col {lines[lines.length - 1]?.length || 1}</span>
+              <span>{bufferText.length} characters</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span>100%</span>
+              <span>Windows (CRLF)</span>
+              <span>UTF-8</span>
+            </div>
           </div>
         </div>
       );

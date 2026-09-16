@@ -8,6 +8,15 @@ export interface AgentStep {
   result?: any;
   duration_ms?: number;
   confidence?: number;
+  thought?: string;
+}
+
+export interface AgentReasoning {
+  intent: string;
+  scratch_mode: boolean;
+  apps_targeted: string[];
+  safety_level: 'safe' | 'sensitive' | 'elevated';
+  thought_process: string[];
 }
 
 export interface UIAElement {
@@ -24,6 +33,8 @@ export interface ActiveWindowInfo {
   title: string;
   process: string;
   rect: { x: number; y: number; width: number; height: number };
+  buffer_text?: string;
+  scratch_mode?: boolean;
 }
 
 export interface LogEntry {
@@ -37,6 +48,7 @@ export interface AgentState {
   goal: string;
   current_step: number;
   steps: AgentStep[];
+  reasoning?: AgentReasoning;
   pending_confirmation: {
     id: string;
     action_type: string;
@@ -48,7 +60,7 @@ export interface AgentState {
   cursor_pos: [number, number];
   is_input_frozen?: boolean;
   freeze_enabled?: boolean;
-  speed?: '1x' | '2x' | '5x';
+  speed?: 'observable' | 'normal' | 'fast';
   ocr_confidence?: number;
   logs: LogEntry[];
 }
