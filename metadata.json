@@ -1,0 +1,11 @@
+{
+  "name": "Remix Local Windows Computer-Use Agent",
+  "description": "Native local Windows AI computer-use agent capable of controlling real desktop applications, mouse, keyboard, UI Automation, and screen perception.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
